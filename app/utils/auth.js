@@ -4,7 +4,7 @@ const User = require("../models/user.model");
 const AppError = require("../app-error");
 
 // 1. Middleware xác thực token JWT
-exports.protect = async (req, res, next) => {
+exports.protect = async (req, res, next) => { 
   try {
     let token;
     // 1,Lấy token từ header Authorization
