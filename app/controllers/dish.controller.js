@@ -168,9 +168,9 @@ exports.updateDish = async (req, res, next) => {
     }
 
     if (region) dish.region = region;
-    if (description !== undefined) dish.description = description.trim();
-    if (image !== undefined) dish.image = image.trim();
-    if (Array.isArray(images)) dish.images = images;
+    if (description !== undefined && description.trim()) dish.description = description.trim();
+    if (image !== undefined && image.trim()) dish.image = image.trim();
+    if (Array.isArray(images) && images.length > 0) dish.images = images;
     if (isFeatured !== undefined) dish.isFeatured = Boolean(isFeatured);
     if (availability !== undefined) dish.availability = Boolean(availability);
 
@@ -271,8 +271,14 @@ exports.getMenuProfitAnalysis = async (req, res, next) => {
       return {
         _id: dish._id,
         name: dish.name,
+        slug: dish.slug,
         image: dish.image,
-        category: dish.category?.name || "Khác",
+        images: dish.images || [],
+        description: dish.description || "",
+        region: dish.region || "Nam",
+        category: dish.category,
+        availability: dish.availability !== false,
+        isFeatured: Boolean(dish.isFeatured),
         price: dish.price,
         foodCost,
         grossProfit,
