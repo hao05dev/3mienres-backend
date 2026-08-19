@@ -9,8 +9,8 @@ exports.createDish = async (req, res, next) => {
   try {
     const { name, category, price, region, description, image, images, isFeatured } = req.body;
 
-    if (!name || !category || price === undefined || !description || !image) {
-      return next(new AppError("Vui lòng nhập đầy đủ: Tên món (name), Danh mục (category), Giá (price), Mô tả và Ảnh đại diện", 400));
+    if (!name || !category || price === undefined) {
+      return next(new AppError("Vui lòng nhập đầy đủ: Tên món (name), Danh mục (category) và Giá (price)", 400));
     }
 
     const numericPrice = parseFloat(price);
@@ -32,14 +32,17 @@ exports.createDish = async (req, res, next) => {
       return next(new AppError(`Món ăn '${name}' đã tồn tại trong thực đơn`, 409));
     }
 
+    const finalDescription = (description && description.trim()) || `Món ăn đặc sản ${name.trim()} chuẩn vị miền ${validRegion} thơm ngon, đậm đà.`;
+    const finalImage = (image && image.trim()) || "/uploads/dishes/dish-placeholder.jpg";
+
     const newDish = await Dish.create({
       name: name.trim(),
       slug,
       category,
       price: numericPrice,
       region: validRegion,
-      description: description.trim(),
-      image: image.trim(),
+      description: finalDescription,
+      image: finalImage,
       images: Array.isArray(images) ? images : [],
       isFeatured: Boolean(isFeatured),
       availability: true,
