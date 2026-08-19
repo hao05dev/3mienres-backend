@@ -104,7 +104,7 @@ exports.getAllReviews = async (req, res, next) => {
 
     const reviews = await Review.find(filter)
       .populate("user", "name email phone avatar")
-      .populate("dish", "name image price category")
+      .populate("dish", "name image price category slug")
       .populate("reply.repliedBy", "name role")
       .sort({ createdAt: -1 })
       .skip(skip)

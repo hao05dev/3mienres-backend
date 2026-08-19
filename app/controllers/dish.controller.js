@@ -95,7 +95,11 @@ exports.getAllDishes = async (req, res, next) => {
 // 3. Tra cứu chi tiết món ăn bằng Slug (Dành cho trang chi tiết món ăn trên Web)
 exports.getDishBySlug = async (req, res, next) => {
   try {
-    const dish = await Dish.findOne({ slug: req.params.slug }).populate("category", "name slug description");
+    const isObjectId = mongoose.Types.ObjectId.isValid(req.params.slug);
+    const query = isObjectId
+      ? { $or: [{ slug: req.params.slug }, { _id: req.params.slug }] }
+      : { slug: req.params.slug };
+    const dish = await Dish.findOne(query).populate("category", "name slug description");
     if (!dish) return next(new AppError("Không tìm thấy món ăn này", 404));
 
     res.status(200).json({

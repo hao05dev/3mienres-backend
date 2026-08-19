@@ -103,6 +103,7 @@ app.use("/api/feedbacks", feedbackRouter);
 app.use("/api/ranks", rankRouter);
 app.use("/api/chatbot", chatbotRouter);
 app.use("/api/upload", uploadRouter);
+app.use("/api/uploads", uploadRouter);
 app.use("/api/settings", settingRouter);
 app.use("/api/dashboard", dashboardRouter);
 app.use("/api/payments", paymentRouter);
