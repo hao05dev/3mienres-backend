@@ -94,6 +94,16 @@ const reservationSchema = new mongoose.Schema(
       type: Number,
       default: 0, // Tiền đặt cọc trước (nếu có)
     },
+    voucherCode: {
+      type: String,
+      trim: true,
+      uppercase: true,
+      default: null, // Mã giảm giá khách đã áp dụng khi đặt bàn
+    },
+    voucherDiscount: {
+      type: Number,
+      default: 0, // Số tiền giảm giá từ voucher
+    },
     depositStatus: {
       type: String,
       enum: ["UNPAID", "PAID"],

@@ -134,6 +134,32 @@ exports.createReservation = async (req, res, next) => {
       depositAmount = settings.defaultDeposit;
     }
 
+    // Xử lý áp dụng mã giảm giá / Voucher (nếu khách nhập)
+    let voucherDiscount = 0;
+    let appliedVoucherCode = null;
+    if (req.body.voucherCode) {
+      const Voucher = require("../models/voucher.model");
+      const { computeDiscount } = require("./voucher.controller");
+      const code = req.body.voucherCode.trim().toUpperCase();
+      const voucher = await Voucher.findOne({ code, isActive: true });
+      if (voucher) {
+        const now = new Date();
+        if (now >= voucher.startDate && now <= voucher.endDate) {
+          if (voucher.usageLimit === 0 || voucher.usedCount < voucher.usageLimit) {
+            const orderValue = preOrderTotal > 0 ? preOrderTotal : depositAmount;
+            voucherDiscount = roundMoney(computeDiscount(voucher, orderValue));
+            appliedVoucherCode = voucher.code;
+            voucher.usedCount = (voucher.usedCount || 0) + 1;
+            await voucher.save();
+          }
+        }
+      }
+    }
+
+    if (voucherDiscount > 0) {
+      depositAmount = Math.max(0, depositAmount - voucherDiscount);
+    }
+
     const reservationCode = await generateUniqueCode(Reservation, "RES", "reservationCode");
     const qrCodeUrl = generateVietQRUrl(
       settings.bankInfo.bankId,
@@ -171,6 +197,8 @@ exports.createReservation = async (req, res, next) => {
       isCombined,
       preOrderDishes: formattedDishes,
       depositAmount,
+      voucherCode: appliedVoucherCode,
+      voucherDiscount,
       notes,
     });
 
