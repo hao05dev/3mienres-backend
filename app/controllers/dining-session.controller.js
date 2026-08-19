@@ -491,7 +491,7 @@ exports.changeTables = async (req, res, next) => {
 exports.mergeSessions = async (req, res, next) => {
   try {
     const { id } = req.params; // Target Session ID (Bàn giữ lại làm bàn chính)
-    const { sourceSessionId } = req.body; // Source Session ID (Bàn phụ gộp vào)
+    const { sourceSessionId, keepSourceTable = true } = req.body; // Source Session ID (Bàn phụ gộp vào)
 
     if (!sourceSessionId) {
       return next(new AppError("Vui lòng cung cấp mã bàn muốn gộp (sourceSessionId)", 400));
@@ -518,18 +518,32 @@ exports.mergeSessions = async (req, res, next) => {
       { diningSession: targetSession._id }
     );
 
-    // 2. Gộp bàn & số khách
-    const combinedTables = Array.from(
-      new Set([...targetSession.tables.map((t) => t.toString()), ...sourceSession.tables.map((t) => t.toString())])
-    );
-    targetSession.tables = combinedTables;
+    // 2. Xử lý bàn & số khách
+    const sourceTableIds = sourceSession.tables.map((t) => t.toString());
+    const targetTableIds = targetSession.tables.map((t) => t.toString());
+
+    if (keepSourceTable) {
+      // Giữ cả 2 bàn thành 1 cụm liên kết
+      const combinedTables = Array.from(new Set([...targetTableIds, ...sourceTableIds]));
+      targetSession.tables = combinedTables;
+      await Table.updateMany({ _id: { $in: combinedTables } }, { status: "OCCUPIED" });
+    } else {
+      // Khách sang ngồi chung bàn chính -> Giải phóng các bàn của bàn nguồn về AVAILABLE
+      const tablesToFree = sourceTableIds.filter((tId) => !targetTableIds.includes(tId));
+      if (tablesToFree.length > 0) {
+        await Table.updateMany({ _id: { $in: tablesToFree } }, { status: "AVAILABLE" });
+      }
+    }
+
     targetSession.actualGuestsCount = (targetSession.actualGuestsCount || 1) + (sourceSession.actualGuestsCount || 1);
-    targetSession.notes = (targetSession.notes ? targetSession.notes + " | " : "") + `Đã gộp từ bàn ${sourceSession.sessionCode}`;
+    targetSession.notes = (targetSession.notes ? targetSession.notes + " | " : "") +
+      `Đã gộp từ bàn ${sourceSession.sessionCode} (${sourceSession.customerName || 'Khách vãng lai'})`;
     await targetSession.save();
 
     // 3. Đóng phiên Bàn nguồn
     sourceSession.status = "COMPLETED";
-    sourceSession.notes = (sourceSession.notes ? sourceSession.notes + " | " : "") + `Đã gộp vào bàn ${targetSession.sessionCode}`;
+    sourceSession.notes = (sourceSession.notes ? sourceSession.notes + " | " : "") +
+      `Đã gộp vào bàn ${targetSession.sessionCode} (${targetSession.customerName || 'Khách vãng lai'})`;
     await sourceSession.save();
 
     logAction(req, "MERGE_SESSION", "DiningSession", targetSession._id, {
