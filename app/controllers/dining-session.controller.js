@@ -180,6 +180,19 @@ exports.checkInAndMergeReservation = async (req, res, next) => {
 
     // Xử lý bàn: Khách kê thêm bàn hay sang ngồi chung giải phóng bàn cũ
     if (keepReservationTables && resTableIds.length > 0) {
+      const combinedTableIds = Array.from(new Set([...targetSession.tables.map((t) => t.toString()), ...resTableIds]));
+      if (combinedTableIds.length > 1) {
+        const mergeCheck = await tableEngine.validateMergeableTables(combinedTableIds);
+        if (!mergeCheck.isValid) {
+          return next(
+            new AppError(
+              "Bàn đã đặt và bàn người quen không nằm cạnh nhau hoặc khác khu vực trong sơ đồ nhà hàng nên không thể kê ghép bàn vật lý. Vui lòng chọn phương án 'Sang ngồi chung bàn' để giải phóng bàn cũ.",
+              400
+            )
+          );
+        }
+      }
+
       for (const tId of resTableIds) {
         if (!targetSession.tables.map((t) => t.toString()).includes(tId)) {
           targetSession.tables.push(tId);
@@ -523,8 +536,20 @@ exports.mergeSessions = async (req, res, next) => {
     const targetTableIds = targetSession.tables.map((t) => t.toString());
 
     if (keepSourceTable) {
-      // Giữ cả 2 bàn thành 1 cụm liên kết
       const combinedTables = Array.from(new Set([...targetTableIds, ...sourceTableIds]));
+      if (combinedTables.length > 1) {
+        const mergeCheck = await tableEngine.validateMergeableTables(combinedTables);
+        if (!mergeCheck.isValid) {
+          return next(
+            new AppError(
+              "Hai bàn này không nằm cạnh nhau hoặc khác khu vực trong sơ đồ nhà hàng nên không thể kê ghép bàn vật lý. Nếu khách bàn phụ chuyển sang ngồi chung bàn chính, vui lòng chọn phương án 'Khách sang ngồi chung bàn chính' để giải phóng bàn phụ.",
+              400
+            )
+          );
+        }
+      }
+
+      // Giữ cả 2 bàn thành 1 cụm liên kết
       targetSession.tables = combinedTables;
       await Table.updateMany({ _id: { $in: combinedTables } }, { status: "OCCUPIED" });
     } else {
