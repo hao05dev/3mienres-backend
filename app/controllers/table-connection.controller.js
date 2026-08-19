@@ -92,7 +92,40 @@ exports.getAllConnections = async (req, res, next) => {
   }
 };
 
-// 3. Xóa liên kết ghép bàn (Chỉ Manager / Admin)
+// 3. Cập nhật liên kết ghép bàn (Ghi chú...) (Chỉ Manager / Admin)
+exports.updateConnection = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { note } = req.body;
+
+    const connection = await TableConnection.findById(id);
+    if (!connection) {
+      return next(new AppError("Không tìm thấy liên kết ghép bàn này", 404));
+    }
+
+    if (note !== undefined) {
+      connection.note = note.trim();
+    }
+
+    await connection.save();
+
+    const updated = await TableConnection.findById(id)
+      .populate("tableA", "tableNumber capacity area areaId")
+      .populate("tableB", "tableNumber capacity area areaId");
+
+    emitEvent("connections:changed");
+
+    res.status(200).json({
+      status: "success",
+      message: "Đã cập nhật ghi chú cặp bàn ghép thành công",
+      data: { connection: updated },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// 4. Xóa liên kết ghép bàn (Chỉ Manager / Admin)
 exports.deleteConnection = async (req, res, next) => {
   try {
     const { id } = req.params;

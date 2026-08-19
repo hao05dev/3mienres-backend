@@ -13,6 +13,9 @@ router.use(protect, restrictTo("manager", "admin"));
 // Tạo liên kết ghép bàn mới
 router.post("/", tableConnectionController.createConnection);
 
+// Cập nhật liên kết ghép bàn (Ghi chú...)
+router.patch("/:id", tableConnectionController.updateConnection);
+
 // Xóa liên kết ghép bàn
 router.delete("/:id", tableConnectionController.deleteConnection);
 
