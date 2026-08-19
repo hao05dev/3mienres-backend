@@ -4,10 +4,10 @@ const multer = require("multer");
 const AppError = require("../app-error");
 const config = require("../config");
 
-// Cấu hình lưu trữ file bằng Multer
+// Cấu hình lưu trữ file bằng Multer vào thư mục uploads/dishes
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    const uploadDir = path.join(__dirname, "../../public/uploads");
+    const uploadDir = path.join(__dirname, "../../public/uploads/dishes");
     if (!fs.existsSync(uploadDir)) {
       fs.mkdirSync(uploadDir, { recursive: true });
     }
@@ -50,8 +50,18 @@ exports.uploadResponse = (req, res, next) => {
     return next(new AppError("Vui lòng chọn 1 file hình ảnh để tải lên", 400));
   }
 
-  // Dùng backendUrl cố định thay vì req.get("host") để tránh Host header injection
-  const fileUrl = `${config.backendUrl}/uploads/${req.file.filename}`;
+  // Tự động sao chép sang frontend/public/uploads/dishes để Vite dev server nhận diện ngay lập tức
+  try {
+    const frontendDir = path.join(__dirname, "../../../frontend/public/uploads/dishes");
+    if (!fs.existsSync(frontendDir)) {
+      fs.mkdirSync(frontendDir, { recursive: true });
+    }
+    fs.copyFileSync(req.file.path, path.join(frontendDir, req.file.filename));
+  } catch (err) {
+    console.warn("Không thể đồng bộ file sang frontend:", err.message);
+  }
+
+  const fileUrl = `/uploads/dishes/${req.file.filename}`;
 
   res.status(200).json({
     status: "success",
