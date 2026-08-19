@@ -27,13 +27,12 @@ const tableConnectionSchema = new mongoose.Schema(
 );
 
 // Tự tính pairKey (chuẩn hóa thứ tự 2 bàn) trước khi lưu
-tableConnectionSchema.pre("validate", function (next) {
+tableConnectionSchema.pre("validate", function () {
   if (this.tableA && this.tableB) {
     const a = this.tableA.toString();
     const b = this.tableB.toString();
     this.pairKey = [a, b].sort().join("_");
   }
-  next();
 });
 
 module.exports = mongoose.model("TableConnection", tableConnectionSchema);

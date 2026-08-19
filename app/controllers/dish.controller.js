@@ -188,16 +188,34 @@ exports.updateDish = async (req, res, next) => {
   }
 };
 
-// 7. Xóa món ăn
+// 7. Xóa món ăn (Chỉ cho phép xóa nếu món chưa từng phát sinh trong đơn gọi món / đặt trước nào)
 exports.deleteDish = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const deleted = await Dish.findByIdAndDelete(id);
-    if (!deleted) return next(new AppError("Không tìm thấy món ăn để xóa", 404));
+    const dish = await Dish.findById(id);
+    if (!dish) return next(new AppError("Không tìm thấy món ăn để xóa", 404));
+
+    const Order = require("../models/order.model");
+    const Reservation = require("../models/reservation.model");
+
+    // Kiểm tra xem món đã từng được gọi trong Order hoặc Reservation nào chưa
+    const orderCount = await Order.countDocuments({ "items.dish": id });
+    const reservationCount = await Reservation.countDocuments({ "preOrderDishes.dish": id });
+
+    if (orderCount > 0 || reservationCount > 0) {
+      return next(
+        new AppError(
+          `Không thể xóa món '${dish.name}' vì món đã từng phát sinh trong ${orderCount} đơn gọi món và ${reservationCount} đơn đặt bàn. Để ngừng phục vụ, bạn hãy chuyển trạng thái món sang "HẾT HÀNG".`,
+          400
+        )
+      );
+    }
+
+    await Dish.findByIdAndDelete(id);
 
     res.status(200).json({
       status: "success",
-      message: "Xóa món ăn thành công",
+      message: `Đã xóa món '${dish.name}' thành công`,
       data: null,
     });
   } catch (error) {
