@@ -1,7 +1,9 @@
+const mongoose = require("mongoose");
 const Dish = require("../models/dish.model");
 const Category = require("../models/category.model");
 const AppError = require("../app-error");
 const slugify = require("../utils/slugify");
+const { escapeRegex } = require("../utils/escapeRegex");
 const { getPagination, buildPaginationMeta } = require("../utils/pagination");
 
 // 1. Tạo món ăn mới (Tự động sinh Slug đẹp cho URL)
@@ -95,11 +97,20 @@ exports.getAllDishes = async (req, res, next) => {
 // 3. Tra cứu chi tiết món ăn bằng Slug (Dành cho trang chi tiết món ăn trên Web)
 exports.getDishBySlug = async (req, res, next) => {
   try {
-    const isObjectId = mongoose.Types.ObjectId.isValid(req.params.slug);
-    const query = isObjectId
-      ? { $or: [{ slug: req.params.slug }, { _id: req.params.slug }] }
-      : { slug: req.params.slug };
-    const dish = await Dish.findOne(query).populate("category", "name slug description");
+    const rawParam = req.params.slug ? decodeURIComponent(req.params.slug).trim() : "";
+    const paramSlug = slugify(rawParam);
+    const isObjectId = mongoose.Types.ObjectId.isValid(rawParam);
+
+    const orConditions = [
+      { slug: rawParam },
+      { slug: paramSlug },
+      { name: { $regex: new RegExp(`^${escapeRegex(rawParam)}$`, "i") } },
+    ];
+    if (isObjectId) {
+      orConditions.push({ _id: rawParam });
+    }
+
+    const dish = await Dish.findOne({ $or: orConditions }).populate("category", "name slug description");
     if (!dish) return next(new AppError("Không tìm thấy món ăn này", 404));
 
     res.status(200).json({
