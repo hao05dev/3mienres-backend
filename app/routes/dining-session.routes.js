@@ -10,6 +10,9 @@ router.use(protect, restrictTo("staff", "manager", "admin"));
 // Check-in cho khách đặt trước
 router.post("/check-in", diningSessionController.checkInReservation);
 
+// Check-in ghép vào bàn người quen đang ngồi ăn
+router.post("/check-in-merge", diningSessionController.checkInAndMergeReservation);
+
 // Tiếp nhận khách Walk-in trực tiếp
 router.post("/walk-in", diningSessionController.createWalkInSession);
 

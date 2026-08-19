@@ -146,6 +146,111 @@ exports.checkInReservation = async (req, res, next) => {
   }
 };
 
+// 1.1 Check-in gộp đơn đặt bàn online vào bàn người quen đang ngồi ăn
+exports.checkInAndMergeReservation = async (req, res, next) => {
+  try {
+    const { reservationId, targetSessionId, actualGuestsCount, keepReservationTables } = req.body;
+
+    if (!reservationId || !targetSessionId) {
+      return next(new AppError("Vui lòng cung cấp mã đơn đặt bàn (reservationId) và bàn đang ngồi cần gộp vào (targetSessionId)", 400));
+    }
+
+    const reservation = await Reservation.findById(reservationId);
+    if (!reservation) {
+      return next(new AppError("Không tìm thấy đơn đặt bàn này trên hệ thống", 404));
+    }
+
+    if (reservation.status === "CANCELLED" || reservation.status === "COMPLETED" || reservation.status === "ARRIVED") {
+      return next(new AppError(`Đơn đặt bàn đang ở trạng thái '${reservation.status}', không thể thực hiện check-in!`, 409));
+    }
+
+    const targetSession = await DiningSession.findById(targetSessionId);
+    if (!targetSession) {
+      return next(new AppError("Không tìm thấy bàn người quen đang ngồi", 404));
+    }
+
+    if (targetSession.status !== "ACTIVE") {
+      return next(new AppError("Bàn người quen đã kết thúc hoặc không còn hoạt động để gộp!", 409));
+    }
+
+    const additionalGuests = actualGuestsCount ? parseInt(actualGuestsCount, 10) : reservation.guestsCount;
+    targetSession.actualGuestsCount = (targetSession.actualGuestsCount || 0) + additionalGuests;
+
+    const resTableIds = (reservation.tables || []).map((t) => t.toString());
+
+    // Xử lý bàn: Khách kê thêm bàn hay sang ngồi chung giải phóng bàn cũ
+    if (keepReservationTables && resTableIds.length > 0) {
+      for (const tId of resTableIds) {
+        if (!targetSession.tables.map((t) => t.toString()).includes(tId)) {
+          targetSession.tables.push(tId);
+        }
+      }
+      await Table.updateMany({ _id: { $in: resTableIds } }, { status: "OCCUPIED" });
+    } else if (resTableIds.length > 0) {
+      await Table.updateMany({ _id: { $in: resTableIds } }, { status: "AVAILABLE" });
+    }
+
+    // Tự động chuyển món Pre-order từ đơn đặt sang đơn gọi món của bàn người quen
+    if (reservation.preOrderDishes && reservation.preOrderDishes.length > 0) {
+      let preOrderSubtotal = 0;
+      const items = reservation.preOrderDishes.map((item) => {
+        preOrderSubtotal += item.priceAtBooking * item.quantity;
+        return {
+          dish: item.dish,
+          quantity: item.quantity,
+          price: item.priceAtBooking,
+          notes: `Món đặt trước của khách ${reservation.customerName} (ghép bàn)`,
+        };
+      });
+
+      const preOrderCode = await generateUniqueCode(Order, "ORD", "orderCode");
+      await Order.create({
+        orderCode: preOrderCode,
+        diningSession: targetSession._id,
+        items,
+        subtotal: preOrderSubtotal,
+        status: "PENDING",
+        orderedBy: req.user ? req.user._id : null,
+        notes: `Tự động gộp từ món Pre-order của đơn đặt ${reservation.reservationCode} (${reservation.customerName})`,
+      });
+    }
+
+    // Cập nhật ghi chú phiên ăn
+    targetSession.notes = (targetSession.notes ? targetSession.notes + " | " : "") +
+      `Đã ghép khách ${reservation.customerName} (+${additionalGuests} người, đơn ${reservation.reservationCode})`;
+    await targetSession.save();
+
+    // Cập nhật trạng thái đơn đặt sang ARRIVED
+    reservation.status = "ARRIVED";
+    reservation.notes = (reservation.notes ? reservation.notes + " | " : "") +
+      `Đã check-in ghép vào bàn người quen ${targetSession.sessionCode}`;
+    await reservation.save();
+
+    const populatedSession = await DiningSession.findById(targetSession._id)
+      .populate("tables", "tableNumber capacity area")
+      .populate("reservation", "reservationCode startAt endAt");
+
+    emitEvent("sessions:changed");
+    emitEvent("tables:changed");
+    emitEvent("reservations:changed");
+    emitEvent("orders:changed");
+    logAction(req, "CHECK_IN_MERGE", "DiningSession", targetSession._id, {
+      sessionCode: targetSession.sessionCode,
+      reservationCode: reservation.reservationCode,
+      customerName: reservation.customerName,
+      additionalGuests,
+    });
+
+    res.status(200).json({
+      status: "success",
+      message: `Đã Check-in và ghép khách '${reservation.customerName}' vào bàn người quen thành công!`,
+      data: { diningSession: populatedSession },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 // 2. Tiếp nhận khách Walk-in (Đi ngang vào trực tiếp không đặt trước)
 exports.createWalkInSession = async (req, res, next) => {
   try {
