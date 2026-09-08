@@ -24,6 +24,9 @@ const config = {
     redirectUrl: process.env.MOMO_REDIRECT_URL || "http://localhost:3000/api/payments/momo/callback",
     ipnUrl: process.env.MOMO_IPN_URL || "http://localhost:3000/api/payments/momo/ipn",
   },
+  // Cấu hình Google Gemini AI cho mô hình RAG Chatbot
+  geminiApiKey: process.env.GEMINI_API_KEY || "",
+  geminiModel: process.env.GEMINI_MODEL || "gemini-2.5-flash",
 };
 
 module.exports = config;
