@@ -9,6 +9,8 @@ router.use(protect);
 // Cập nhật hồ sơ cá nhân
 router.patch("/me", userController.updateMe);
 router.patch("/me/password", userController.changePassword);
+router.get("/me/favorites", userController.getMyFavorites);
+router.post("/favorites/:dishId/toggle", userController.toggleFavorite);
 
 // Quản lý nhân sự & Phân quyền (Admin / Manager)
 router.get("/staff-stats", restrictTo("admin", "manager"), userController.getStaffStats);

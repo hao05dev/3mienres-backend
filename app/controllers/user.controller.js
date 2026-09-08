@@ -297,3 +297,57 @@ exports.getCustomerStats = async (req, res, next) => {
     next(error);
   }
 };
+
+// 10. Thêm / Xóa món ăn khỏi danh sách yêu thích
+exports.toggleFavorite = async (req, res, next) => {
+  try {
+    const { dishId } = req.params;
+    const user = await User.findById(req.user._id);
+    if (!user) return next(new AppError("Không tìm thấy tài khoản", 404));
+
+    user.favorites = user.favorites || [];
+    const index = user.favorites.findIndex((id) => id.toString() === dishId.toString());
+
+    let isFavorite = false;
+    if (index > -1) {
+      user.favorites.splice(index, 1);
+      isFavorite = false;
+    } else {
+      user.favorites.push(dishId);
+      isFavorite = true;
+    }
+
+    await user.save();
+
+    res.status(200).json({
+      status: "success",
+      message: isFavorite ? "Đã lưu món ăn vào danh sách yêu thích!" : "Đã bỏ món ăn khỏi danh sách yêu thích!",
+      data: {
+        isFavorite,
+        favoritesCount: user.favorites.length,
+        favorites: user.favorites,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// 11. Lấy danh sách món ăn yêu thích của tài khoản đang đăng nhập
+exports.getMyFavorites = async (req, res, next) => {
+  try {
+    const user = await User.findById(req.user._id).populate({
+      path: "favorites",
+      populate: { path: "category", select: "name slug" },
+    });
+    if (!user) return next(new AppError("Không tìm thấy tài khoản", 404));
+
+    res.status(200).json({
+      status: "success",
+      results: user.favorites?.length || 0,
+      data: { favorites: user.favorites || [] },
+    });
+  } catch (error) {
+    next(error);
+  }
+};

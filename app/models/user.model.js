@@ -59,6 +59,13 @@ const userSchema = new mongoose.Schema(
       type: Boolean,
       default: true,
     },
+    // Danh sách món ăn yêu thích của khách hàng (Favorites / Wishlist)
+    favorites: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Dish",
+      },
+    ],
     // Thông tin nhân sự (HR & Staff Management)
     employeeCode: {
       type: String,

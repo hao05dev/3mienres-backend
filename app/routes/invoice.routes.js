@@ -4,15 +4,21 @@ const { protect, restrictTo } = require("../utils/auth");
 
 const router = express.Router();
 
-router.use(protect, restrictTo("staff", "manager", "admin"));
+router.use(protect);
 
-// Tạo hóa đơn & Thanh toán giải phóng bàn
-router.post("/", invoiceController.createInvoice);
+// Khách hàng xem lịch sử hóa đơn của chính mình
+router.get("/my-invoices", invoiceController.getMyInvoices);
 
-// Lấy hóa đơn của 1 lượt dùng bữa
-router.get("/session/:sessionId", invoiceController.getInvoiceBySession);
+// Lấy chi tiết hóa đơn theo ID (Khách hàng hoặc Nhân viên)
+router.get("/:id/detail", invoiceController.getInvoiceDetail);
 
-// Xem tất cả hóa đơn / Thống kê doanh thu
-router.get("/", invoiceController.getAllInvoices);
+// Tạo hóa đơn & Thanh toán giải phóng bàn (Chỉ Staff / Manager / Admin)
+router.post("/", restrictTo("staff", "manager", "admin"), invoiceController.createInvoice);
+
+// Lấy hóa đơn của 1 lượt dùng bữa (Chỉ Staff / Manager / Admin)
+router.get("/session/:sessionId", restrictTo("staff", "manager", "admin"), invoiceController.getInvoiceBySession);
+
+// Xem tất cả hóa đơn / Thống kê doanh thu (Chỉ Staff / Manager / Admin)
+router.get("/", restrictTo("staff", "manager", "admin"), invoiceController.getAllInvoices);
 
 module.exports = router;

@@ -318,5 +318,84 @@ exports.getAllInvoices = async (req, res, next) => {
   }
 };
 
+// 4. Lấy danh sách hóa đơn dùng bữa của khách hàng đang đăng nhập (E-Receipt History)
+exports.getMyInvoices = async (req, res, next) => {
+  try {
+    const userPhone = req.user.phone;
+    const userId = req.user._id;
+
+    // Tìm tất cả các Reservation của User
+    const userReservations = await Reservation.find({ user: userId }).select("_id");
+    const resIds = userReservations.map((r) => r._id);
+
+    // Tìm tất cả các DiningSession liên quan tới User (qua customer ID, customerPhone, hoặc Reservation)
+    const orConditions = [{ customer: userId }];
+    if (userPhone) orConditions.push({ customerPhone: userPhone });
+    if (resIds.length > 0) orConditions.push({ reservation: { $in: resIds } });
+
+    const userSessions = await DiningSession.find({ $or: orConditions }).select("_id");
+    const sessionIds = userSessions.map((s) => s._id);
+
+    const { page, limit, skip } = getPagination(req.query);
+    const filter = { diningSession: { $in: sessionIds } };
+    const total = await Invoice.countDocuments(filter);
+
+    const invoices = await Invoice.find(filter)
+      .populate({
+        path: "diningSession",
+        populate: [
+          { path: "tables", select: "tableNumber capacity area" },
+          { path: "reservation", select: "reservationCode startAt endAt depositAmount" },
+        ],
+      })
+      .populate({
+        path: "orders",
+        populate: { path: "items.dish", select: "name image price category" },
+      })
+      .populate("cashier", "name role")
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit);
+
+    res.status(200).json({
+      status: "success",
+      results: invoices.length,
+      ...buildPaginationMeta(total, page, limit),
+      data: { invoices },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// 5. Lấy chi tiết một hóa đơn cụ thể (cho khách hàng hoặc nhân viên)
+exports.getInvoiceDetail = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const invoice = await Invoice.findById(id)
+      .populate({
+        path: "diningSession",
+        populate: [
+          { path: "tables", select: "tableNumber capacity area" },
+          { path: "reservation", select: "reservationCode startAt endAt depositAmount" },
+        ],
+      })
+      .populate({
+        path: "orders",
+        populate: { path: "items.dish", select: "name image price category" },
+      })
+      .populate("cashier", "name role");
+
+    if (!invoice) return next(new AppError("Không tìm thấy hóa đơn này", 404));
+
+    res.status(200).json({
+      status: "success",
+      data: { invoice },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 // Export để payment.controller dùng khi VNPay callback xác nhận thanh toán
 exports.finalizeInvoiceSession = finalizeInvoiceSession;
