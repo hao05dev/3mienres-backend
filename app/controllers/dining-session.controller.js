@@ -592,3 +592,21 @@ exports.mergeSessions = async (req, res, next) => {
     next(error);
   }
 };
+
+// 7. Xem chi tiết 1 phiên dùng bữa (Phục vụ in tạm tính & tra cứu)
+exports.getSessionById = async (req, res, next) => {
+  try {
+    const session = await DiningSession.findById(req.params.id)
+      .populate("tables", "tableNumber capacity area")
+      .populate("reservation", "reservationCode depositAmount");
+    if (!session) {
+      return next(new AppError("Không tìm thấy phiên dùng bữa này", 404));
+    }
+    res.status(200).json({
+      status: "success",
+      data: { session },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
