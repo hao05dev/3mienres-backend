@@ -430,7 +430,11 @@ exports.rescheduleReservation = async (req, res, next) => {
     }
 
     const startTime = new Date(startAt);
-    if (Number.isNaN(startTime.getTime()) || startTime < new Date()) {
+    if (Number.isNaN(startTime.getTime())) {
+      return next(new AppError("Thời gian dời lịch không hợp lệ", 400));
+    }
+    // Nếu là khách hàng yêu cầu dời lịch thì bắt buộc phải là thời điểm trong tương lai
+    if (!isStaff && startTime < new Date()) {
       return next(new AppError("Thời gian mới phải là thời điểm hợp lệ trong tương lai", 400));
     }
 

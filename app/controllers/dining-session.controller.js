@@ -78,6 +78,12 @@ exports.checkInReservation = async (req, res, next) => {
       return next(new AppError("Một số bàn vừa bị chiếm hoặc đang phục vụ khách khác. Vui lòng thử lại!", 409));
     }
 
+    const now = new Date();
+    const originalDuration = (reservation.endAt && reservation.startAt)
+      ? Math.max(new Date(reservation.endAt) - new Date(reservation.startAt), 60 * 60 * 1000)
+      : 2 * 60 * 60 * 1000;
+    const calculatedExpectedEndTime = new Date(now.getTime() + originalDuration);
+
     // Lớp 3: Tạo DiningSession thực tế
     const newSession = await DiningSession.create({
       sessionCode,
@@ -88,14 +94,27 @@ exports.checkInReservation = async (req, res, next) => {
       customerPhone: reservation.customerPhone,
       actualGuestsCount: finalGuests,
       tables: finalTableIds,
-      checkInTime: new Date(),
-      expectedEndTime: reservation.endAt,
+      checkInTime: now,
+      expectedEndTime: calculatedExpectedEndTime,
       status: "ACTIVE",
       servedBy: req.user ? req.user._id : null,
     });
 
-    // Cập nhật trạng thái đơn đặt bàn sang ARRIVED
+    // Cập nhật trạng thái và đồng bộ ngày giờ thực tế vào đơn đặt bàn
+    const isDifferentDayOrHour =
+      now.toDateString() !== new Date(reservation.startAt).toDateString() ||
+      Math.abs((now - new Date(reservation.startAt)) / 60000) > 30;
+
+    if (isDifferentDayOrHour) {
+      const oldTimeStr = new Date(reservation.startAt).toLocaleString("vi-VN");
+      reservation.notes = (reservation.notes ? reservation.notes + " | " : "") +
+        `Khách đến sớm trực tiếp (Dời lịch từ ${oldTimeStr} sang ${now.toLocaleString("vi-VN")})`;
+      reservation.startAt = now;
+      reservation.endAt = calculatedExpectedEndTime;
+    }
+
     reservation.status = "ARRIVED";
+    reservation.tables = finalTableIds;
     await reservation.save();
 
     // Tự động tạo đợt gọi món đầu tiên từ các món Pre-order (nếu có)
@@ -233,7 +252,24 @@ exports.checkInAndMergeReservation = async (req, res, next) => {
       `Đã ghép khách ${reservation.customerName} (+${additionalGuests} người, đơn ${reservation.reservationCode})`;
     await targetSession.save();
 
-    // Cập nhật trạng thái đơn đặt sang ARRIVED
+    // Cập nhật trạng thái và đồng bộ ngày giờ thực tế vào đơn đặt bàn
+    const now = new Date();
+    const originalDuration = (reservation.endAt && reservation.startAt)
+      ? Math.max(new Date(reservation.endAt) - new Date(reservation.startAt), 60 * 60 * 1000)
+      : 2 * 60 * 60 * 1000;
+
+    const isDifferentDayOrHour =
+      now.toDateString() !== new Date(reservation.startAt).toDateString() ||
+      Math.abs((now - new Date(reservation.startAt)) / 60000) > 30;
+
+    if (isDifferentDayOrHour) {
+      const oldTimeStr = new Date(reservation.startAt).toLocaleString("vi-VN");
+      reservation.notes = (reservation.notes ? reservation.notes + " | " : "") +
+        `Khách đến sớm ghép bàn (Dời lịch từ ${oldTimeStr} sang ${now.toLocaleString("vi-VN")})`;
+      reservation.startAt = now;
+      reservation.endAt = new Date(now.getTime() + originalDuration);
+    }
+
     reservation.status = "ARRIVED";
     reservation.notes = (reservation.notes ? reservation.notes + " | " : "") +
       `Đã check-in ghép vào bàn người quen ${targetSession.sessionCode}`;
