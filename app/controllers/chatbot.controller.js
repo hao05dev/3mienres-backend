@@ -22,7 +22,7 @@ const { emitEvent } = require("../socket");
 // 1. Endpoint xử lý trò chuyện & tư vấn thông minh từ AI RAG
 exports.processChat = async (req, res, next) => {
   try {
-    const { prompt, currentBookingContext, customerName, customerPhone } = req.body;
+    const { prompt, currentBookingContext, selectedActiveReservation, customerName, customerPhone } = req.body;
 
     if (!prompt || !prompt.trim()) {
       return next(new AppError("Vui lòng nhập nội dung tin nhắn", 400));
@@ -30,7 +30,7 @@ exports.processChat = async (req, res, next) => {
 
     const text = prompt.trim();
 
-    // ═══ BƯỚC 1: TRUY XUẤT TRI THỨC THỜI GIAN THỰC (RETRIEVAL) ═══
+    // ═══ BƯỚC 1: TRUY XUẤT TRI THỨC THỜI GIAN THỰC QUA IN-MEMORY CACHE (RETRIEVAL) ═══
     const ragContext = await ragService.buildRAGContext(text);
 
     // ═══ BƯỚC 2: TẠO CÂU TRẢ LỜI & BÓC TÁCH Ý ĐỊNH VỚI GEMINI / RAG ═══
@@ -42,6 +42,53 @@ exports.processChat = async (req, res, next) => {
 
     const isBooking = aiResult.extractedData?.isBooking || aiResult.intent === "BOOKING_PREVIEW";
     const isMenu = aiResult.intent === "MENU_RECOMMENDATION";
+
+    // ═══ KỊCH BẢN ĐẶC BIỆT: BỔ SUNG MÓN VÀO BÀN ĐÃ ĐẶT SẴN (ACTIVE RESERVATION) ═══
+    const isAddToExisting = /thêm món|bổ sung món|gọi thêm món|thêm vào bàn|them mon|bo sung mon/i.test(text) || !!selectedActiveReservation;
+    if (isAddToExisting && (selectedActiveReservation || customerPhone)) {
+      const extracted = aiResult.extractedData || {};
+      const dishDict = ragContext.dishDictionary || [];
+      const newDishesToAdd = [];
+
+      if (Array.isArray(extracted.dishes)) {
+        for (const item of extracted.dishes) {
+          const matched = dishDict.find((d) =>
+            d.name.toLowerCase().includes(item.dishName.toLowerCase()) ||
+            item.dishName.toLowerCase().includes(d.name.toLowerCase())
+          );
+          if (matched) {
+            newDishesToAdd.push({
+              dishId: matched.id,
+              dishName: matched.name,
+              price: matched.price,
+              quantity: item.quantity || 1,
+            });
+          }
+        }
+      }
+
+      if (newDishesToAdd.length > 0) {
+        const targetRes = selectedActiveReservation;
+        const resCode = targetRes?.reservationCode || "của bạn";
+        let reply = `🦀 **Em đã nhận diện món cần bổ sung cho đơn đặt bàn [${resCode}]:**\n\n`;
+        let addedTotal = 0;
+        newDishesToAdd.forEach((d) => {
+          reply += `• **${d.dishName}** x ${d.quantity} phần (\`${(d.price * d.quantity).toLocaleString("vi-VN")}đ\`)\n`;
+          addedTotal += d.price * d.quantity;
+        });
+        reply += `\n💵 **Tổng tiền món thêm:** \`${addedTotal.toLocaleString("vi-VN")}đ\`\n`;
+        reply += `\n👇 *Bấm nút **"Cập Nhật Vào Bàn Đã Đặt"** bên dưới để hoàn tất nhé!*`;
+
+        return res.status(200).json({
+          status: "success",
+          source: aiResult.source,
+          reply,
+          intent: "ADD_DISH_TO_EXISTING_PREVIEW",
+          dishesToAdd: newDishesToAdd,
+          targetReservation: targetRes,
+        });
+      }
+    }
 
     // ═══ KỊCH BẢN 1: TƯ VẤN THỰC ĐƠN ═══
     if (isMenu && !isBooking) {
@@ -341,6 +388,120 @@ exports.confirmBookingFromChat = async (req, res, next) => {
         qrCodeUrl,
       },
       data: { reservation: populatedReservation },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// 3. Endpoint lấy danh sách lịch đặt bàn sắp tới của khách (Tự động nhận diện bàn, không cần nhớ mã)
+exports.getActiveReservations = async (req, res, next) => {
+  try {
+    let queryUser = req.user || null;
+    if (!queryUser && req.headers.authorization && req.headers.authorization.startsWith("Bearer ")) {
+      try {
+        const token = req.headers.authorization.split(" ")[1];
+        const decoded = jwt.verify(token, config.jwtSecret);
+        if (decoded && decoded.id) {
+          queryUser = await User.findById(decoded.id);
+        }
+      } catch (e) {}
+    }
+
+    const phone = req.query.phone || (queryUser ? queryUser.phone : null);
+    const filter = {
+      status: { $in: ["PENDING", "CONFIRMED"] },
+      startAt: { $gte: new Date(Date.now() - 2 * 3600000) }, // Lấy từ 2 tiếng trước trở đi
+    };
+
+    if (queryUser) {
+      filter.$or = [{ user: queryUser._id }, { customerPhone: queryUser.phone }];
+    } else if (phone) {
+      filter.customerPhone = phone.trim();
+    } else {
+      return res.status(200).json({ status: "success", reservations: [] });
+    }
+
+    const reservations = await Reservation.find(filter)
+      .populate("tables", "tableNumber capacity area")
+      .populate("preOrderDishes.dish", "name price image")
+      .sort({ startAt: 1 })
+      .limit(5);
+
+    res.status(200).json({
+      status: "success",
+      reservations,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// 4. Endpoint bổ sung món ăn vào đơn đặt bàn sẵn có (Không cần tạo lại đơn mới)
+exports.addDishesToBooking = async (req, res, next) => {
+  try {
+    const { reservationId, reservationCode, customerPhone, dishes } = req.body;
+
+    let targetReservation;
+    if (reservationId) {
+      targetReservation = await Reservation.findById(reservationId);
+    } else if (reservationCode) {
+      targetReservation = await Reservation.findOne({ reservationCode: reservationCode.trim().toUpperCase() });
+    } else if (customerPhone) {
+      targetReservation = await Reservation.findOne({
+        customerPhone: customerPhone.trim(),
+        status: { $in: ["PENDING", "CONFIRMED"] },
+        startAt: { $gte: new Date(Date.now() - 2 * 3600000) },
+      }).sort({ startAt: 1 });
+    }
+
+    if (!targetReservation) {
+      return next(new AppError("Không tìm thấy thông tin lịch đặt bàn sắp tới để bổ sung món!", 404));
+    }
+
+    if (!Array.isArray(dishes) || dishes.length === 0) {
+      return next(new AppError("Vui lòng chọn ít nhất 1 món ăn cần bổ sung", 400));
+    }
+
+    // Hợp nhất món mới vào danh sách món đã đặt
+    const existingMap = new Map();
+    (targetReservation.preOrderDishes || []).forEach((item) => {
+      const dId = (item.dish?._id || item.dish)?.toString();
+      if (dId) existingMap.set(dId, item);
+    });
+
+    for (const newDish of dishes) {
+      const dId = (newDish.dishId || newDish._id || newDish.dish)?.toString();
+      const qty = newDish.quantity || 1;
+      const price = newDish.price || 0;
+      if (dId) {
+        if (existingMap.has(dId)) {
+          const old = existingMap.get(dId);
+          old.quantity += qty;
+        } else {
+          existingMap.set(dId, {
+            dish: dId,
+            quantity: qty,
+            priceAtBooking: price,
+            notes: "Bổ sung qua AI Chatbot",
+          });
+        }
+      }
+    }
+
+    targetReservation.preOrderDishes = Array.from(existingMap.values());
+    await targetReservation.save();
+
+    const populated = await Reservation.findById(targetReservation._id)
+      .populate("tables", "tableNumber capacity area")
+      .populate("preOrderDishes.dish", "name price image");
+
+    emitEvent("reservations:changed");
+
+    res.status(200).json({
+      status: "success",
+      message: `Đã bổ sung món vào đơn đặt bàn [${targetReservation.reservationCode}] thành công!`,
+      reservation: populated,
     });
   } catch (error) {
     next(error);
