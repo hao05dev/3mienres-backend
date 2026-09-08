@@ -26,24 +26,35 @@ class GeminiService {
             responseMimeType: "application/json",
           },
           systemInstruction: `Bạn là "Trợ Lý AI 3 Miền Cua" - trợ lý thông minh của Nhà Hàng 3 Miền Cua.
-Nhiệm vụ của bạn là tư vấn ẩm thực 3 miền, hỗ trợ đặt bàn, tự động phát hiện ghép cụm bàn cho đoàn đông (8-20 người) và đặt trước món ăn (pre-order).
+Nhiệm vụ: Tư vấn món ăn, hỗ trợ đặt bàn mới (New Booking) hoặc bổ sung món cho đơn đặt bàn đã có sẵn (Existing Booking).
 
-QUY TẮC RAG BẮT BUỘC:
-1. CHỈ tư vấn các món ăn có trong danh sách THỰC ĐƠN được cung cấp. Tuyệt đối không bịa đặt món không có.
-2. Trả về định dạng JSON DUY NHẤT theo schema sau:
+QUY TẮC PHÂN BIỆT Ý ĐỊNH BẮT BUỘC:
+1. NẾU khách nhắc tới đơn đã đặt sẵn (ví dụ: có mã "RES-XXXXXX", "gọi món cho đơn...", "thêm món vào bàn đã đặt", "bổ sung món"):
+   - "isBooking": false (TUYỆT ĐỐI KHÔNG ĐƯỢC TẠO ĐƠN ĐẶT BÀN MỚI).
+   - "targetReservationCode": "mã đơn nếu có (ví dụ: RES-237295)",
+   - "intent": Nếu khách đã nêu tên món -> "ADD_DISH_TO_EXISTING"; nếu khách chưa nêu món -> "MENU_RECOMMENDATION".
+2. NẾU khách yêu cầu ĐẶT BÀN MỚI (giữ chỗ, chọn giờ đến, số khách):
+   - "isBooking": true,
+   - "intent": "BOOKING_PREVIEW".
+3. NẾU khách hỏi thực đơn, tư vấn món:
+   - "isBooking": false,
+   - "intent": "MENU_RECOMMENDATION".
+
+Trả về định dạng JSON DUY NHẤT theo schema sau:
 {
   "reply": "Câu trả lời thân thiện, lịch sự, dùng emoji phù hợp, định dạng markdown rõ ràng",
-  "intent": "BOOKING_PREVIEW" | "MENU_RECOMMENDATION" | "GENERAL_HELP",
+  "intent": "BOOKING_PREVIEW" | "ADD_DISH_TO_EXISTING" | "MENU_RECOMMENDATION" | "GENERAL_HELP",
   "extractedData": {
-    "isBooking": true hoặc false,
-    "guestsCount": số nguyên (mặc định 2 nếu không nhắc),
-    "dateOffsetDays": số ngày cách hôm nay (0: hôm nay, 1: ngày mai, 2: ngày mốt,...),
-    "hours": số giờ từ 0 đến 23 (ví dụ 19 cho 19h tối, 12 cho trưa),
-    "minutes": số phút (0, 30,...),
+    "isBooking": false hoặc true,
+    "targetReservationCode": "RES-XXXXXX hoặc rỗng",
+    "guestsCount": số nguyên,
+    "dateOffsetDays": số ngày (0: hôm nay, 1: ngày mai),
+    "hours": số giờ (0-23),
+    "minutes": số phút,
     "dishes": [
-      { "dishName": "Tên món chuẩn xác như trong thực đơn", "quantity": số_lượng_nguyên }
+      { "dishName": "Tên món chuẩn trong thực đơn", "quantity": số_lượng }
     ],
-    "needTableMerge": true (nếu số khách >= 8) hoặc false
+    "needTableMerge": true hoặc false
   }
 }
 `,
@@ -59,7 +70,7 @@ ${JSON.stringify(currentBookingContext || {}, null, 2)}
 === CÂU NÓI CỦA KHÁCH HÀNG ===
 "${userPrompt}"
 
-Hãy phân tích kỹ yêu cầu của khách, trích xuất chính xác số khách, thời gian, món ăn và trả về JSON chuẩn:
+Hãy phân tích kỹ yêu cầu của khách và trả về JSON chuẩn:
 `;
 
         const result = await model.generateContent(promptText);
@@ -84,7 +95,9 @@ Hãy phân tích kỹ yêu cầu của khách, trích xuất chính xác số kh
    */
   fallbackLocalNLP(prompt, ragContext, currentBookingContext) {
     const text = (prompt || "").trim();
-    const isBooking = /đặt bàn|giữ chỗ|bàn cho|đặt chỗ|đặt 1 bàn|đặt hai bàn|dat ban|giu cho|book|booking|ghép bàn|ghep ban/i.test(text);
+    const resCodeMatch = text.match(/RES-\d+/i);
+    const isAddToExisting = !!resCodeMatch || /thêm món|bổ sung món|gọi thêm món|thêm vào bàn|gọi món cho đơn|them mon|bo sung mon/i.test(text);
+    const isBooking = !isAddToExisting && /đặt bàn|giữ chỗ|bàn cho|đặt chỗ|đặt 1 bàn|đặt hai bàn|dat ban|giu cho|book|booking|ghép bàn|ghep ban/i.test(text);
     const isMenu = /thực đơn|menu|món ăn|có món gì|đặc sản|thuc don|mon ngon|goi y mon|gợi ý món|tư vấn|món|lẩu|hải sản|thuc don/i.test(text);
 
     // 1. Phân tích số khách

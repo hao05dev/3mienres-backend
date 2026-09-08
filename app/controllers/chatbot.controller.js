@@ -40,12 +40,21 @@ exports.processChat = async (req, res, next) => {
       currentBookingContext,
     });
 
-    const isBooking = aiResult.extractedData?.isBooking || aiResult.intent === "BOOKING_PREVIEW";
-    const isMenu = aiResult.intent === "MENU_RECOMMENDATION";
+    // ═══ KIỂM TRA NẾU ĐÂY LÀ YÊU CẦU CHO ĐƠN ĐÃ CÓ SẴN (EXISTING RESERVATION) ═══
+    const resCodeMatch = text.match(/RES-\d+/i);
+    let targetReservation = selectedActiveReservation || null;
 
-    // ═══ KỊCH BẢN ĐẶC BIỆT: BỔ SUNG MÓN VÀO BÀN ĐÃ ĐẶT SẴN (ACTIVE RESERVATION) ═══
-    const isAddToExisting = /thêm món|bổ sung món|gọi thêm món|thêm vào bàn|them mon|bo sung mon/i.test(text) || !!selectedActiveReservation;
-    if (isAddToExisting && (selectedActiveReservation || customerPhone)) {
+    if (resCodeMatch) {
+      const code = resCodeMatch[0].toUpperCase();
+      targetReservation = await Reservation.findOne({ reservationCode: code })
+        .populate("tables", "tableNumber capacity area")
+        .populate("preOrderDishes.dish", "name price image");
+    }
+
+    const isAddToExisting = !!resCodeMatch || /thêm món|bổ sung món|gọi thêm món|thêm vào bàn|gọi món cho đơn|them mon|bo sung mon/i.test(text) || !!selectedActiveReservation;
+
+    // ═══ KỊCH BẢN ĐẶC BIỆT: BỔ SUNG MÓN VÀO BÀN ĐÃ ĐẶT SẴN ═══
+    if (isAddToExisting && (targetReservation || customerPhone || resCodeMatch)) {
       const extracted = aiResult.extractedData || {};
       const dishDict = ragContext.dishDictionary || [];
       const newDishesToAdd = [];
@@ -67,9 +76,9 @@ exports.processChat = async (req, res, next) => {
         }
       }
 
+      // TRƯỜNG HỢP 1: Khách đã nêu rõ món cần thêm -> Hiện thẻ xác nhận bổ sung món
       if (newDishesToAdd.length > 0) {
-        const targetRes = selectedActiveReservation;
-        const resCode = targetRes?.reservationCode || "của bạn";
+        const resCode = targetReservation?.reservationCode || resCodeMatch?.[0] || "của bạn";
         let reply = `🦀 **Em đã nhận diện món cần bổ sung cho đơn đặt bàn [${resCode}]:**\n\n`;
         let addedTotal = 0;
         newDishesToAdd.forEach((d) => {
@@ -85,10 +94,27 @@ exports.processChat = async (req, res, next) => {
           reply,
           intent: "ADD_DISH_TO_EXISTING_PREVIEW",
           dishesToAdd: newDishesToAdd,
-          targetReservation: targetRes,
+          targetReservation,
         });
       }
+
+      // TRƯỜNG HỢP 2: Khách muốn gọi món cho đơn nhưng CHƯA nêu tên món cụ thể -> Gợi ý thực đơn và KHÔNG hiện thẻ xếp bàn mới
+      let filteredDishes = await Dish.find({ availability: true }).limit(6);
+      const resCode = targetReservation?.reservationCode || resCodeMatch?.[0] || "";
+      const tableNames = targetReservation?.tables?.map((t) => `Bàn ${t.tableNumber}`).join(" + ") || "đã đặt";
+
+      return res.status(200).json({
+        status: "success",
+        source: aiResult.source,
+        reply: aiResult.reply || `🦀 **Dạ em đã ghi nhận yêu cầu gọi món cho đơn đặt bàn [${resCode}] (${tableNames})!**\n\nAnh/Chị hãy tham khảo các món đặc sắc bên dưới hoặc mở **"Thực Đơn Nhanh"** để chọn món thêm vào bàn nhé!`,
+        intent: "MENU_RECOMMENDATION",
+        dishes: filteredDishes,
+        targetReservation,
+      });
     }
+
+    const isBooking = !isAddToExisting && (aiResult.extractedData?.isBooking || aiResult.intent === "BOOKING_PREVIEW");
+    const isMenu = aiResult.intent === "MENU_RECOMMENDATION";
 
     // ═══ KỊCH BẢN 1: TƯ VẤN THỰC ĐƠN ═══
     if (isMenu && !isBooking) {
