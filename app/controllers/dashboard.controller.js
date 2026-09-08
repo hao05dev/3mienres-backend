@@ -133,6 +133,35 @@ exports.getDashboardStats = async (req, res, next) => {
       .filter((r) => r.depositStatus !== "PAID")
       .reduce((s, r) => s + (r.depositAmount || 0), 0);
 
+    // 11. Thống kê biểu đồ Giờ Cao Điểm (Peak Hours: 08:00 -> 23:00)
+    const peakHoursRaw = await Invoice.aggregate([
+      { $match: { paidAt: { $gte: start, $lte: end }, paymentStatus: "PAID" } },
+      {
+        $group: {
+          _id: { $hour: { date: "$paidAt", timezone: "+07:00" } },
+          totalRevenue: { $sum: "$finalAmount" },
+          orderCount: { $sum: 1 },
+        },
+      },
+      { $sort: { _id: 1 } },
+    ]);
+
+    const peakHoursMap = new Map();
+    peakHoursRaw.forEach((item) => {
+      peakHoursMap.set(item._id, item);
+    });
+
+    const peakHours = [];
+    for (let h = 8; h <= 23; h++) {
+      const match = peakHoursMap.get(h);
+      peakHours.push({
+        hour: h,
+        label: `${String(h).padStart(2, "0")}:00`,
+        orderCount: match ? match.orderCount : 0,
+        revenue: match ? match.totalRevenue : 0,
+      });
+    }
+
     res.status(200).json({
       status: "success",
       filterRange: { start, end },
@@ -150,6 +179,7 @@ exports.getDashboardStats = async (req, res, next) => {
         paymentMethodBreakdown,
         reservationStatusCounts,
         orderStatusCounts,
+        peakHours,
         depositStats: {
           collected: depositCollected,
           pending: depositPending,

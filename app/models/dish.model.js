@@ -60,6 +60,11 @@ const dishSchema = new mongoose.Schema({
     type: Number,
     default: 0,
   },
+  station: {
+    type: String,
+    enum: ["KITCHEN", "BAR"],
+    default: "KITCHEN",
+  },
   createdAt: {
     type: Date,
     default: Date.now,
