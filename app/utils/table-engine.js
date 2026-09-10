@@ -10,7 +10,7 @@ exports.isTimeOverlap = (startA, endA, startB, endB) => {
 };
 
 // 2. Tìm tất cả các tableId đang bị chiếm dụng trong khung giờ [startAt, endAt]
-exports.getOccupiedTableIds = async (startAt, endAt) => {
+exports.getOccupiedTableIds = async (startAt, endAt, excludeReservationId = null) => {
   const occupiedSet = new Set();
   const startTime = new Date(startAt);
   const endTime = new Date(endAt);
@@ -25,11 +25,16 @@ exports.getOccupiedTableIds = async (startAt, endAt) => {
   }
 
   // B. Kiểm tra các bàn đã được giữ trước cho Reservation trong cùng khung giờ
-  const overlappingReservations = await Reservation.find({
+  const query = {
     status: { $in: ["PENDING", "CONFIRMED", "ARRIVED"] },
     startAt: { $lt: endTime },
     endAt: { $gt: startTime },
-  });
+  };
+  if (excludeReservationId) {
+    query._id = { $ne: excludeReservationId };
+  }
+
+  const overlappingReservations = await Reservation.find(query);
 
   for (let res of overlappingReservations) {
     if (res.tables && res.tables.length > 0) {

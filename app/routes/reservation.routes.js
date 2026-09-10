@@ -18,12 +18,16 @@ router.get("/my-history", reservationController.getMyReservations);
 
 router.use(restrictTo("staff", "manager", "admin"));
 
+router.get("/check-availability", reservationAdminController.checkTableAvailability);
+router.post("/admin-create", reservationAdminController.adminCreateReservation);
 router.get("/", reservationAdminController.getAllReservations);
 router.post("/scan-no-show", reservationAdminController.triggerNoShowScan);
 router.patch("/:id/assign-tables", reservationAdminController.assignTables);
 router.patch("/:id/confirm-deposit", reservationAdminController.confirmDeposit);
 router.patch("/:id/approve-reschedule", reservationAdminController.approveReschedule);
 router.patch("/:id/reject-reschedule", reservationAdminController.rejectReschedule);
+router.patch("/:id/admin-reschedule", reservationAdminController.adminRescheduleReservation);
+router.patch("/:id/admin-cancel", reservationAdminController.adminCancelReservation);
 router.patch("/:id/no-show", reservationAdminController.markNoShow);
 
 module.exports = router;

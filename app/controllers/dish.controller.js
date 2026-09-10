@@ -70,9 +70,14 @@ exports.getAllDishes = async (req, res, next) => {
 
     if (category) filter.category = category;
     if (region) filter.region = region;
-    if (isFeatured !== undefined) filter.isFeatured = isFeatured === "true";
-    if (availability !== undefined) filter.availability = availability === "true";
-    if (search) filter.name = { $regex: search.trim(), $options: "i" };
+    if (search && search.trim()) {
+      const searchRegex = { $regex: search.trim(), $options: "i" };
+      filter.$or = [
+        { name: searchRegex },
+        { description: searchRegex },
+        { region: searchRegex },
+      ];
+    }
 
     const { page, limit, skip } = getPagination(req.query);
     const total = await Dish.countDocuments(filter);
